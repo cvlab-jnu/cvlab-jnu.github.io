@@ -384,6 +384,50 @@ async function main() {
     assert.deepStrictEqual(scopeFilter({ group: '' }, ['group']), { group: null });
   });
 
+  await check('every page container in index.html is properly closed', () => {
+    const fs = require('fs');
+    const path = require('path');
+    const html = fs.readFileSync(path.join(__dirname, '..', 'docs', 'index.html'), 'utf8');
+    const lines = html.split('\n');
+
+    const opens = (html.match(/<div\b/g) || []).length;
+    const closes = (html.match(/<\/div>/g) || []).length;
+    assert.strictEqual(opens, closes,
+      `unbalanced divs: ${opens} <div> against ${closes} </div>`);
+
+    // The failure this guards against is not a parse error — browsers recover
+    // silently. An extra </div> ends the tab panel early, and everything after
+    // it escapes into <main>, where it renders on EVERY tab. That is what made
+    // the Lab In-charge page show the home page's content.
+    for (const id of ['p-home', 'p-pi', 'p-research', 'p-members', 'p-teaching', 'p-gallery']) {
+      const start = lines.findIndex((l) => l.includes(`id="${id}"`));
+      assert.ok(start !== -1, `${id} is missing from index.html`);
+
+      let depth = 0;
+      let end = -1;
+      for (let i = start; i < lines.length; i++) {
+        depth += (lines[i].match(/<div\b/g) || []).length;
+        depth -= (lines[i].match(/<\/div>/g) || []).length;
+        if (depth === 0) { end = i; break; }
+        if (depth < 0) break;
+      }
+      assert.ok(end > start, `${id} is never closed, or is closed by a stray tag`);
+
+      // Nothing may sit between one panel's close and the next panel's open
+      // except comments and blank lines.
+      const after = lines.slice(end + 1).join('\n');
+      const nextPanel = after.search(/<div class="page"/);
+      if (nextPanel !== -1) {
+        const between = after.slice(0, nextPanel)
+          .replace(/<!--[\s\S]*?-->/g, '')
+          .trim();
+        assert.strictEqual(between, '',
+          `content escaped after ${id} and will render on every tab: ` +
+          between.slice(0, 80));
+      }
+    }
+  });
+
   console.log('\ncurriculum vitae');
 
   await check('the CV uses the real Computer Modern faces, not a substitute', () => {
