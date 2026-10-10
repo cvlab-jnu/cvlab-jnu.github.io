@@ -97,7 +97,7 @@
     ['theme', 'Research directions'], ['patent', 'Patents'],
     ['journal', 'Journal articles'], ['chapter', 'Book chapters'],
     ['conference', 'Conference papers'], ['talk', 'Invited talks'],
-    ['organized', 'Events organized'], ['chaired', 'Conferences chaired']
+    ['organized', 'Events organized'], ['chaired', 'Sessions chaired']
   ];
 
   function opts(pairs, selected) {
@@ -395,6 +395,15 @@
       singleton: true
     },
 
+    profile: {
+      title: 'CV & Profile',
+      hint: 'The parts of the CV that are not already in the database — education, ' +
+            'appointments, certifications, awards, service and training. Publications, ' +
+            'teaching and the citation figures come from their own tabs, so they are ' +
+            'not repeated here.',
+      profile: true
+    },
+
     account: { title: 'Account', hint: 'Change the password for this editor.', account: true }
   };
 
@@ -655,9 +664,10 @@
 
     el('view-title').textContent = v.title;
     el('view-hint').textContent = v.hint || '';
-    el('new-btn').hidden = Boolean(v.singleton || v.account);
+    el('new-btn').hidden = Boolean(v.singleton || v.account || v.profile);
 
     if (v.account) return renderAccount();
+    if (v.profile) return renderProfile();
     if (v.singleton) return renderMetrics();
     loadList();
   }
@@ -859,6 +869,288 @@
       } finally {
         btn.disabled = false;
         btn.textContent = 'Save metrics';
+      }
+    });
+  }
+
+  // ------------------------------------------------------------- profile
+
+  /**
+   * The CV's narrative sections.
+   *
+   * Each list is a set of repeatable rows. Rows are read back by position
+   * rather than by name, so two lists can both have a "title" field without
+   * colliding, and a blank row is simply dropped by the server rather than
+   * stored as an empty entry.
+   */
+
+  // Lists of dated entries: a bold title, an organisation, a period.
+  var PROFILE_ENTRY_LISTS = [
+    ['appointments', 'Academic experience', 'Assistant Professor', 'March 2023 – Present'],
+    ['education', 'Education', 'Ph.D. in Computer Science and Engineering', '2017 – 2021'],
+    ['certifications', 'Professional certifications', 'NPTEL Elite: Deep Learning', '2021'],
+    ['awards', 'Awards and achievements', 'Best Paper Award', 'December 2024']
+  ];
+
+  // Lists of bullets: a bold lead-in and a sentence.
+  var PROFILE_BULLET_LISTS = [
+    ['qualifications', 'National level qualifications', 'GATE', 'Qualified in 2014 and 2017.'],
+    ['service', 'Administrative responsibilities', 'Examination Coordinator', 'What the role involves.'],
+    ['training', 'Professional training and workshops', 'Workshop name', 'Where and when.']
+  ];
+
+  function entryRow(key, r) {
+    r = r || {};
+    return '<div class="repeat-row" data-row>' +
+      '<div class="two">' +
+        '<input type="text" data-f="title"  placeholder="Title" value="' + esc(r.title || '') + '">' +
+        '<input type="text" data-f="period" placeholder="Period" value="' + esc(r.period || '') + '">' +
+      '</div>' +
+      '<input type="text" data-f="org" placeholder="Institution or organisation" value="' + esc(r.org || '') + '">' +
+      '<input type="text" data-f="detail" placeholder="Detail (optional) — grade, date awarded, number" value="' + esc(r.detail || '') + '">' +
+      '<button type="button" class="btn ghost" data-del>Remove</button>' +
+      '</div>';
+  }
+
+  function bulletRow(key, r) {
+    r = r || {};
+    return '<div class="repeat-row" data-row>' +
+      '<input type="text" data-f="label" placeholder="Lead-in (bold)" value="' + esc(r.label || '') + '">' +
+      '<textarea data-f="text" rows="2" placeholder="Description">' + esc(r.text || '') + '</textarea>' +
+      '<button type="button" class="btn ghost" data-del>Remove</button>' +
+      '</div>';
+  }
+
+  function listBlock(key, label, rowsHtml, example) {
+    return '<fieldset class="repeat" data-list="' + key + '">' +
+      '<legend>' + esc(label) + '</legend>' +
+      '<div data-rows>' + rowsHtml + '</div>' +
+      '<p class="fieldhint">' + esc(example) + '</p>' +
+      '<button type="button" class="btn repeat-add" data-add>Add row</button>' +
+      '</fieldset>';
+  }
+
+  /**
+   * The download-format picker.
+   *
+   * Built from the catalogue the generator exposes, so a section can never
+   * appear here without a renderer behind it. Order is the order of the rows,
+   * which the up/down buttons change.
+   */
+  function sectionRow(sec, on) {
+    return '<div class="secrow" data-sec="' + esc(sec.key) + '">' +
+      '<label><input type="checkbox" data-on' + (on ? ' checked' : '') + '> ' +
+        esc(sec.label) + (sec.always ? ' <span class="req">core</span>' : '') +
+      '</label>' +
+      '<span class="secmove">' +
+        '<button type="button" class="btn ghost icon" data-up aria-label="Move up">&uarr;</button>' +
+        '<button type="button" class="btn ghost icon" data-down aria-label="Move down">&darr;</button>' +
+      '</span>' +
+      '</div>';
+  }
+
+  async function renderCvFormat(host) {
+    var cat;
+    try {
+      cat = await api('GET', '/cv/sections');
+    } catch (ex) {
+      host.innerHTML = '<div class="msg err">' + esc(ex.message) + '</div>';
+      return;
+    }
+
+    var chosen = cat.selected && cat.selected.length ? cat.selected : null;
+    var ordered = chosen
+      ? chosen.map(function (k) {
+          return cat.sections.filter(function (s) { return s.key === k; })[0];
+        }).filter(Boolean)
+        .concat(cat.sections.filter(function (s) { return chosen.indexOf(s.key) === -1; }))
+      : cat.sections.slice();
+
+    host.innerHTML =
+      '<fieldset class="repeat" id="cvfmt">' +
+      '<legend>Download format</legend>' +
+      '<p class="fieldhint">Tick the sections to include and use the arrows to reorder them. ' +
+        '"Download now" applies these for one download without saving; "Save as default" ' +
+        'makes them what the button on the website produces.</p>' +
+      '<div data-secs>' +
+        ordered.map(function (sec) {
+          return sectionRow(sec, !chosen || chosen.indexOf(sec.key) !== -1);
+        }).join('') +
+      '</div>' +
+      '<div class="fmtacts">' +
+        '<button type="button" class="btn primary" data-dl>Download now</button>' +
+        '<button type="button" class="btn" data-save-fmt>Save as default</button>' +
+        '<button type="button" class="btn ghost" data-reset-fmt>Reset to all</button>' +
+      '</div>' +
+      '<p class="fieldhint" data-fmtnote></p>' +
+      '</fieldset>';
+
+    var box = el('cvfmt');
+
+    function picked() {
+      return Array.prototype.slice.call(box.querySelectorAll('[data-sec]'))
+        .filter(function (r) { return r.querySelector('[data-on]').checked; })
+        .map(function (r) { return r.getAttribute('data-sec'); });
+    }
+
+    function note() {
+      var n = picked().length;
+      var total = box.querySelectorAll('[data-sec]').length;
+      box.querySelector('[data-fmtnote]').textContent =
+        n === 0 ? 'Nothing selected — the download would fall back to every section.'
+                : n + ' of ' + total + ' sections selected.';
+    }
+    note();
+
+    box.addEventListener('change', note);
+
+    box.addEventListener('click', function (e) {
+      var t = e.target;
+      var up = t.closest ? t.closest('[data-up]') : null;
+      var down = t.closest ? t.closest('[data-down]') : null;
+      var row = t.closest ? t.closest('[data-sec]') : null;
+
+      if (up && row && row.previousElementSibling) {
+        row.parentNode.insertBefore(row, row.previousElementSibling);
+        return;
+      }
+      if (down && row && row.nextElementSibling) {
+        row.parentNode.insertBefore(row.nextElementSibling, row);
+        return;
+      }
+
+      if (t.closest && t.closest('[data-dl]')) {
+        var sel = picked();
+        // Same endpoint the public button uses; the query string formats this
+        // one download only.
+        var url = '/api/cv' + (sel.length ? '?sections=' + encodeURIComponent(sel.join(',')) : '');
+        window.open(url, '_blank', 'noopener');
+        return;
+      }
+
+      if (t.closest && t.closest('[data-save-fmt]')) {
+        api('PUT', '/profile', { cvSections: picked() })
+          .then(function () { toast('Saved. The website button now uses this format.'); })
+          .catch(function (ex) { toast(ex.message, true); });
+        return;
+      }
+
+      if (t.closest && t.closest('[data-reset-fmt]')) {
+        api('PUT', '/profile', { cvSections: [] })
+          .then(function () {
+            toast('Reset. The CV includes every section again.');
+            renderCvFormat(host);
+          })
+          .catch(function (ex) { toast(ex.message, true); });
+      }
+    });
+  }
+
+  async function renderProfile() {
+    var box = el('list');
+    box.innerHTML = '<p class="emptyish">Loading…</p>';
+
+    var p;
+    try {
+      p = await api('GET', '/profile');
+    } catch (ex) {
+      box.innerHTML = '<div class="msg err">' + esc(ex.message) + '</div>';
+      return;
+    }
+
+    var html = '<form id="profile-form" style="max-width:720px;margin-top:1.5rem">';
+
+    html += field('name', 'Name', p.name || '');
+    html += field('title', 'Title', p.title || '');
+    html += field('affiliation', 'Affiliation', p.affiliation || '');
+    html += '<div class="two">' +
+      field('email', 'Email', p.email || '') +
+      field('email2', 'Alternate email', p.email2 || '') + '</div>';
+    html += field('phone', 'Phone', p.phone || '', {
+      hint: 'Printed on the downloadable CV, which anyone can download. Leave blank to keep it off a public file.'
+    });
+    html += '<div class="two">' +
+      field('linkedin', 'LinkedIn', p.linkedin || '') +
+      field('orcid', 'ORCID', p.orcid || '') + '</div>';
+    html += '<div class="two">' +
+      field('webpage', 'Webpage', p.webpage || '') +
+      field('scholarUrl', 'Scholar URL', p.scholarUrl || '') + '</div>';
+    html += field('researchInterests', 'Research interests', p.researchInterests || '',
+      { type: 'textarea', rows: 3 });
+    html += field('skills', 'Skills and tools', p.skills || '',
+      { type: 'textarea', rows: 2, hint: 'One paragraph, comma separated.' });
+
+    PROFILE_ENTRY_LISTS.forEach(function (spec) {
+      var key = spec[0];
+      var rows = (p[key] || []).map(function (r) { return entryRow(key, r); }).join('');
+      html += listBlock(key, spec[1], rows, 'For example: ' + spec[2] + '  ·  ' + spec[3]);
+    });
+
+    PROFILE_BULLET_LISTS.forEach(function (spec) {
+      var key = spec[0];
+      var rows = (p[key] || []).map(function (r) { return bulletRow(key, r); }).join('');
+      html += listBlock(key, spec[1], rows, 'For example: ' + spec[2] + ' — ' + spec[3]);
+    });
+
+    html += '<button type="submit" class="btn primary" style="margin-top:1.5rem">Save profile</button>';
+    html += '</form>';
+
+    box.innerHTML = '<div id="cvfmt-host"></div>' + html;
+
+    renderCvFormat(el('cvfmt-host'));
+
+    var form = el('profile-form');
+
+    // One delegated handler for every Add and Remove, so rows added after
+    // render behave the same as rows that were there from the start.
+    form.addEventListener('click', function (e) {
+      var add = e.target.closest ? e.target.closest('[data-add]') : null;
+      if (add) {
+        var set = add.closest('[data-list]');
+        var key = set.getAttribute('data-list');
+        var isEntry = PROFILE_ENTRY_LISTS.some(function (s) { return s[0] === key; });
+        set.querySelector('[data-rows]').insertAdjacentHTML(
+          'beforeend', isEntry ? entryRow(key, {}) : bulletRow(key, {}));
+        return;
+      }
+      var del = e.target.closest ? e.target.closest('[data-del]') : null;
+      if (del) del.closest('[data-row]').remove();
+    });
+
+    form.addEventListener('submit', async function (e) {
+      e.preventDefault();
+      var btn = form.querySelector('button[type=submit]');
+      btn.disabled = true;
+      btn.textContent = 'Saving…';
+
+      var body = {
+        name: form.name.value, title: form.title.value, affiliation: form.affiliation.value,
+        email: form.email.value, email2: form.email2.value, phone: form.phone.value,
+        linkedin: form.linkedin.value, orcid: form.orcid.value,
+        webpage: form.webpage.value, scholarUrl: form.scholarUrl.value,
+        researchInterests: form.researchInterests.value, skills: form.skills.value
+      };
+
+      Array.prototype.slice.call(form.querySelectorAll('[data-list]')).forEach(function (set) {
+        var key = set.getAttribute('data-list');
+        body[key] = Array.prototype.slice.call(set.querySelectorAll('[data-row]'))
+          .map(function (row, i) {
+            var out = { order: i };
+            Array.prototype.slice.call(row.querySelectorAll('[data-f]')).forEach(function (inp) {
+              out[inp.getAttribute('data-f')] = inp.value;
+            });
+            return out;
+          });
+      });
+
+      try {
+        await api('PUT', '/profile', body);
+        toast('Profile saved. Re-download the CV to see it.');
+      } catch (ex) {
+        toast(ex.message, true);
+      } finally {
+        btn.disabled = false;
+        btn.textContent = 'Save profile';
       }
     });
   }

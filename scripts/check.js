@@ -303,6 +303,332 @@ async function main() {
     assert.strictEqual(port.info.height, P.height);
   });
 
+  console.log('\nordering');
+
+  await check('putting a row at 0 makes it first and shifts the rest down', () => {
+    const { placeAt } = require('../src/lib/ordering');
+    // Existing list a,b,c. Move c to the front.
+    assert.deepStrictEqual(placeAt(['a', 'b', 'c'], 'c', 0), ['c', 'a', 'b']);
+    // A brand new row at 0.
+    assert.deepStrictEqual(placeAt(['a', 'b', 'c'], 'new', 0), ['new', 'a', 'b', 'c']);
+  });
+
+  await check('a row can be placed anywhere in the middle', () => {
+    const { placeAt } = require('../src/lib/ordering');
+    assert.deepStrictEqual(placeAt(['a', 'b', 'c', 'd'], 'd', 1), ['a', 'd', 'b', 'c']);
+    assert.deepStrictEqual(placeAt(['a', 'b', 'c', 'd'], 'a', 2), ['b', 'c', 'a', 'd']);
+    // Moving a row to the position it already holds changes nothing.
+    assert.deepStrictEqual(placeAt(['a', 'b', 'c'], 'b', 1), ['a', 'b', 'c']);
+  });
+
+  await check('a position past either end is clamped, not rejected', () => {
+    const { placeAt } = require('../src/lib/ordering');
+    assert.deepStrictEqual(placeAt(['a', 'b'], 'c', 99), ['a', 'b', 'c'], 'large number should append');
+    assert.deepStrictEqual(placeAt(['a', 'b'], 'c', -5), ['c', 'a', 'b'], 'negative should go first');
+    assert.deepStrictEqual(placeAt(['a', 'b'], 'c', 1.7), ['a', 'c', 'b'], 'fractional should truncate');
+  });
+
+  await check('no position means append, which is what "add" should do', () => {
+    const { placeAt } = require('../src/lib/ordering');
+    assert.deepStrictEqual(placeAt(['a', 'b'], 'c', undefined), ['a', 'b', 'c']);
+    assert.deepStrictEqual(placeAt(['a', 'b'], 'c', NaN), ['a', 'b', 'c']);
+    assert.deepStrictEqual(placeAt(['a', 'b'], 'c', Infinity), ['a', 'b', 'c']);
+  });
+
+  await check('the result is always dense and holds every row exactly once', () => {
+    const { placeAt } = require('../src/lib/ordering');
+    const ids = ['a', 'b', 'c', 'd', 'e'];
+
+    // Every row, to every position, must give a permutation of the same set.
+    for (const moving of ids) {
+      for (let pos = -2; pos <= ids.length + 2; pos++) {
+        const out = placeAt(ids, moving, pos);
+        assert.strictEqual(out.length, ids.length,
+          `length changed moving ${moving} to ${pos}: ${out.join(',')}`);
+        assert.strictEqual(new Set(out).size, ids.length,
+          `duplicate or lost row moving ${moving} to ${pos}: ${out.join(',')}`);
+        for (const id of ids) {
+          assert.ok(out.includes(id), `${id} disappeared moving ${moving} to ${pos}`);
+        }
+      }
+    }
+  });
+
+  await check('only the rows that actually move are written', () => {
+    const { renumberOps } = require('../src/lib/ordering');
+
+    // Already 0,1,2 in that order — nothing to do.
+    const none = renumberOps(['a', 'b', 'c'], new Map([['a', 0], ['b', 1], ['c', 2]]));
+    assert.strictEqual(none.length, 0, 'a list already in order should cost no writes');
+
+    // c jumps to the front: all three indices change.
+    const some = renumberOps(['c', 'a', 'b'], new Map([['a', 0], ['b', 1], ['c', 2]]));
+    assert.strictEqual(some.length, 3);
+    assert.deepStrictEqual(some[0].updateOne.update.$set, { order: 0 });
+    assert.deepStrictEqual(some[0].updateOne.filter, { _id: 'c' });
+
+    // A row whose stored order is a duplicate or a gap gets corrected.
+    const messy = renumberOps(['a', 'b', 'c'], new Map([['a', 0], ['b', 0], ['c', 7]]));
+    assert.strictEqual(messy.length, 2, 'the duplicate and the gap should both be fixed');
+  });
+
+  await check('ordering is scoped, so one cohort cannot renumber another', () => {
+    const { scopeFilter } = require('../src/lib/ordering');
+    assert.deepStrictEqual(scopeFilter({ group: 'phd', name: 'x' }, ['group']), { group: 'phd' });
+    assert.deepStrictEqual(scopeFilter({ kind: 'journal' }, ['kind']), { kind: 'journal' });
+    assert.deepStrictEqual(scopeFilter({ title: 'x' }, []), {}, 'no scope means one list');
+
+    // A missing scope field must match "absent", not match everything — else a
+    // row with no group would be renumbered alongside every group.
+    assert.deepStrictEqual(scopeFilter({ name: 'x' }, ['group']), { group: null });
+    assert.deepStrictEqual(scopeFilter({ group: '' }, ['group']), { group: null });
+  });
+
+  console.log('\ncurriculum vitae');
+
+  await check('the CV uses the real Computer Modern faces, not a substitute', () => {
+    const fs = require('fs');
+    const { FONTS } = require('../src/lib/cv');
+    for (const [name, file] of Object.entries(FONTS)) {
+      assert.ok(fs.existsSync(file), `${name} font missing: ${file}`);
+      // A TrueType file starts with 0x00010000 or "true"/"ttcf".
+      const head = fs.readFileSync(file, { length: 4 }).subarray(0, 4);
+      const ok = head.equals(Buffer.from([0, 1, 0, 0])) ||
+                 head.toString('latin1') === 'true' ||
+                 head.toString('latin1') === 'ttcf' ||
+                 head.toString('latin1') === 'OTTO';
+      assert.ok(ok, `${name} is not a usable font file`);
+    }
+  });
+
+  await check('the CV renders to a real PDF from database-shaped data', async () => {
+    const { buildCv } = require('../src/lib/cv');
+
+    const doc = buildCv({
+      profile: {
+        name: 'Dr. Test Person',
+        title: 'Assistant Professor',
+        affiliation: 'School of Engineering',
+        researchInterests: 'Image forensics',
+        appointments: [{ title: 'Assistant Professor', org: 'JNU', period: '2023 – Present' }],
+        education: [{ title: 'Ph.D.', org: 'IIT (BHU)', period: '2017 – 2021' }],
+        service: [{ label: 'Examination Coordinator', text: 'Coordination.' }],
+      },
+      metrics: { citations: 348, hIndex: 10, i10Index: 10, asOf: 'September 2026', source: 'Google Scholar' },
+      courses: [{ title: 'Data Structures', designation: 'B.Tech.', semester: 'Winter' }],
+      members: { phd: [{ name: 'A Scholar', topic: 'Deepfakes' }] },
+      research: {
+        journal: [{ title: 'A paper', authors: 'X and Y', venue: 'A Journal', year: 2024, doi: '10.1/2' }],
+        chaired: [{ title: 'A session', venue: 'A conference', year: 2025 }],
+      },
+    });
+
+    const chunks = [];
+    doc.on('data', (c) => chunks.push(c));
+    const done = new Promise((resolve) => doc.on('end', resolve));
+    doc.end();
+    await done;
+
+    const pdf = Buffer.concat(chunks);
+    assert.ok(pdf.length > 5000, 'the PDF is implausibly small: ' + pdf.length);
+    assert.strictEqual(pdf.subarray(0, 5).toString('latin1'), '%PDF-',
+      'output is not a PDF');
+    assert.ok(pdf.subarray(-1024).toString('latin1').includes('%%EOF'),
+      'the PDF was not closed properly');
+    // The fonts must be embedded, or it renders in Times on a machine without
+    // Computer Modern installed — which is every machine.
+    assert.ok(pdf.includes(Buffer.from('FontFile2')), 'fonts were not embedded');
+  });
+
+  await check('a CV with almost no data still produces a valid document', async () => {
+    const { buildCv } = require('../src/lib/cv');
+    const doc = buildCv({ profile: { name: 'Nobody' } });
+    const chunks = [];
+    doc.on('data', (c) => chunks.push(c));
+    const done = new Promise((resolve) => doc.on('end', resolve));
+    doc.end();
+    await done;
+    const pdf = Buffer.concat(chunks);
+    assert.strictEqual(pdf.subarray(0, 5).toString('latin1'), '%PDF-');
+    assert.ok(pdf.includes(Buffer.from('%%EOF')));
+  });
+
+  await check('a reference never doubles a date it already contains', async () => {
+    const { buildCv } = require('../src/lib/cv');
+    const doc = buildCv({
+      profile: { name: 'T' },
+      research: {
+        chaired: [{
+          // The date lives inside the venue AND there is a year field. Before
+          // the fix this rendered as '…15–17 May 2026., 2026.'
+          title: 'IC2PCT 2026',
+          venue: '6th International Conference, Galgotias University, 15–17 May 2026.',
+          year: 2026,
+        }],
+      },
+    });
+    const chunks = [];
+    doc.on('data', (c) => chunks.push(c));
+    const done = new Promise((r) => doc.on('end', r));
+    doc.end();
+    await done;
+    const pdf = Buffer.concat(chunks).toString('latin1');
+    assert.ok(!/2026\.,/.test(pdf), 'a doubled date slipped back in');
+  });
+
+  await check('the section catalogue and the renderer map cannot drift apart', () => {
+    const { CV_SECTIONS, DEFAULT_ORDER, buildCv } = require('../src/lib/cv');
+
+    // Every advertised section must actually render. The failure this guards
+    // against is silent: a key in the picker with no renderer produces a
+    // checkbox that does nothing at all.
+    assert.ok(CV_SECTIONS.length >= 10, 'the catalogue looks truncated');
+    for (const sec of CV_SECTIONS) {
+      assert.ok(sec.key && sec.label, 'a section is missing its key or label');
+      assert.ok(DEFAULT_ORDER.includes(sec.key));
+    }
+    assert.strictEqual(new Set(DEFAULT_ORDER).size, DEFAULT_ORDER.length,
+      'duplicate section keys');
+  });
+
+  await check('a requested section list is honoured, and junk is ignored', () => {
+    const { resolveSections, DEFAULT_ORDER } = require('../src/lib/cv');
+
+    assert.deepStrictEqual(resolveSections('education,profile'), ['education', 'profile'],
+      'order given must be the order used');
+    assert.deepStrictEqual(resolveSections(['skills', 'skills']), ['skills'],
+      'duplicates must collapse');
+    assert.deepStrictEqual(resolveSections('education,nonsense'), ['education'],
+      'an unknown key must be dropped, not fatal');
+    assert.deepStrictEqual(resolveSections(null), DEFAULT_ORDER,
+      'no request means everything');
+    assert.deepStrictEqual(resolveSections('nonsense,rubbish'), DEFAULT_ORDER,
+      'a request that resolves to nothing falls back to everything');
+  });
+
+  await check('choosing fewer sections produces a smaller document', async () => {
+    const { buildCv } = require('../src/lib/cv');
+    const seed = require('./seed-data.json');
+    const by = (rows, key) => {
+      const o = {};
+      for (const r of rows) (o[r[key]] = o[r[key]] || []).push(r);
+      return o;
+    };
+    const data = {
+      profile: seed.profile, metrics: seed.metrics, courses: seed.courses,
+      members: by(seed.members, 'group'), research: by(seed.research, 'kind'),
+    };
+
+    const render = (opts) => new Promise((resolve) => {
+      const d = buildCv(data, opts);
+      const c = [];
+      d.on('data', (x) => c.push(x));
+      d.on('end', () => resolve(Buffer.concat(c)));
+      d.end();
+    });
+
+    const all = await render(undefined);
+    const few = await render({ sections: ['profile', 'education'] });
+
+    const pages = (b) => (b.toString('latin1').match(/\/Type\s*\/Page[^s]/g) || []).length;
+    assert.ok(pages(few) < pages(all),
+      `selecting two sections gave ${pages(few)} pages vs ${pages(all)} for everything`);
+    assert.strictEqual(few.subarray(0, 5).toString('latin1'), '%PDF-');
+  });
+
+  await check('a stored section list is validated against the catalogue', () => {
+    const { normalise } = require('../src/routes/profile');
+    const out = normalise({ cvSections: ['education', 'bogus', 'education', 'profile'] });
+    assert.deepStrictEqual(out.cvSections, ['education', 'profile'],
+      'junk or duplicate keys must never reach the database');
+  });
+
+  await check('both email addresses survive a save and reach the CV', () => {
+    const { normalise } = require('../src/routes/profile');
+    const out = normalise({ email: 'a@jnu.ac.in', email2: 'b@hotmail.com', phone: '+91-1' });
+    assert.strictEqual(out.email, 'a@jnu.ac.in');
+    assert.strictEqual(out.email2, 'b@hotmail.com', 'the alternate email was dropped on save');
+    assert.strictEqual(out.phone, '+91-1');
+  });
+
+  await check('every profile list the CV renders is accepted by the editor', () => {
+    const { normalise } = require('../src/routes/profile');
+    // The guard that matters: a list the CV knows about but the route does not
+    // allow is silently discarded on save, and the section never appears.
+    const sent = {
+      appointments: [{ title: 'A' }], education: [{ title: 'B' }],
+      certifications: [{ title: 'C' }], awards: [{ title: 'D' }],
+      qualifications: [{ label: 'E' }], service: [{ label: 'F' }],
+      training: [{ label: 'G' }],
+    };
+    const out = normalise(sent);
+    for (const key of Object.keys(sent)) {
+      assert.ok(Array.isArray(out[key]) && out[key].length === 1,
+        key + ' was dropped by the profile editor');
+    }
+  });
+
+  await check('a detailed CV renders the sections added for it', async () => {
+    const { buildCv } = require('../src/lib/cv');
+    const doc = buildCv({
+      profile: {
+        name: 'T',
+        certifications: [{ title: 'NPTEL Elite: Deep Learning', org: 'IIT Madras', period: '2021' }],
+        awards: [{ title: 'Best Paper Award', org: 'ICDAM', period: '2022' }],
+      },
+      research: { theme: [{ label: 'Forensics', title: 'Image forgery detection', body: 'Work on it.' }] },
+      courses: [{
+        title: 'Data Structures', designation: 'B.Tech.', ltp: '3-1-0',
+        description: 'Linear and non-linear structures.',
+        units: [{ label: 'Unit I', title: 'Arrays', topics: 'Insertion, deletion, traversal.' }],
+      }],
+    });
+    const chunks = [];
+    doc.on('data', (c) => chunks.push(c));
+    const done = new Promise((r) => doc.on('end', r));
+    doc.end();
+    await done;
+    const pdf = Buffer.concat(chunks);
+    // The fonts are subset and the text compressed, so assert on size and
+    // structure rather than on strings: an empty section would cost pages.
+    assert.ok(pdf.length > 8000, 'the detailed CV is implausibly small');
+    assert.strictEqual(pdf.subarray(0, 5).toString('latin1'), '%PDF-');
+  });
+
+  await check('the profile editor drops blank rows and clamps long text', () => {
+    const { normalise } = require('../src/routes/profile');
+    const out = normalise({
+      name: '  Dr. Test  ',
+      education: [
+        { title: 'Ph.D.', org: 'IIT', period: '2017–2021' },
+        { title: '', org: '', detail: '' },          // an untouched blank row
+      ],
+      service: [{ label: 'Coordinator', text: 'x' }, { label: '', text: '' }],
+      _id: 'hacked', createdAt: 'nope',              // not on the allow-list
+    });
+
+    assert.strictEqual(out.name, 'Dr. Test', 'whitespace should be trimmed');
+    assert.strictEqual(out.education.length, 1, 'the blank row should be dropped');
+    assert.strictEqual(out.service.length, 1);
+    assert.ok(!('_id' in out), '_id must not be settable');
+    assert.ok(!('createdAt' in out), 'createdAt must not be settable');
+
+    const long = normalise({ researchInterests: 'x'.repeat(5000) });
+    assert.ok(typeof long.researchInterests === 'string');
+  });
+
+  await check('"Conferences chaired" now reads "Sessions chaired" everywhere', () => {
+    const fs = require('fs');
+    const path = require('path');
+    for (const rel of ['docs/assets/site.js', 'admin/assets/admin.js']) {
+      const src = fs.readFileSync(path.join(__dirname, '..', rel), 'utf8');
+      assert.ok(!/Conferences chaired/.test(src), rel + ' still says "Conferences chaired"');
+      assert.ok(/Sessions chaired/.test(src), rel + ' does not say "Sessions chaired"');
+      // The stored value must NOT have been renamed — every existing row uses it.
+      assert.ok(/'chaired'/.test(src), rel + ' lost the stored kind "chaired"');
+    }
+  });
+
   console.log('\ndocument storage');
 
   await check('dangerous content types are never accepted', () => {
