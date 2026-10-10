@@ -185,6 +185,63 @@
   var initial = (location.hash || '#home').slice(1);
   show(pages[initial] ? initial : 'home', false);
 
+  // ---------------------------------------------------------- metrics
+
+  var METRIC_TILES = [
+    { key: 'citations', label: 'Citations' },
+    { key: 'hIndex', label: 'h-index' },
+    { key: 'i10Index', label: 'i10-index' },
+    { key: 'phdScholars', label: 'Ph.D. scholars', pad: true },
+    { key: 'mtechSupervised', label: 'M.Tech. supervised', pad: true },
+    { key: 'patents', label: 'Granted patent', pad: true }
+  ];
+
+  /** document.querySelectorAll as a real array iteration. */
+  function each(selector, fn) {
+    Array.prototype.forEach.call(document.querySelectorAll(selector), fn);
+  }
+
+  /**
+   * Fill the metrics strip.
+   *
+   * Selects on [data-metrics] rather than an id so the markup decides where the
+   * figures appear — one strip, several, or none. The site currently carries a
+   * single strip, in the Home hero; the Lab In-charge page deliberately has
+   * none. Putting one back is a matter of adding the markup, with no change
+   * here. (An id would not allow that: getElementById returns one element, so a
+   * second strip could never be filled.)
+   */
+  function renderMetrics(m) {
+    var boxes = document.querySelectorAll('[data-metrics]');
+    if (!boxes.length) return;
+
+    var html = '';
+    if (m) {
+      METRIC_TILES.forEach(function (t) {
+        var v = m[t.key];
+        if (v === null || v === undefined || v === '') return;  // tile omitted
+        var shown = t.pad && Number(v) < 10 ? '0' + Number(v) : String(v);
+        html += '<div><b>' + esc(shown) + '</b><small>' + esc(t.label) + '</small></div>';
+      });
+    }
+
+    Array.prototype.forEach.call(boxes, function (box) { box.innerHTML = html; });
+
+    // The attribution line follows the figures: shown only where there is both
+    // something to attribute and a source to name.
+    var show = !!m && html !== '' && !!(m.source || m.asOf);
+    var url = m ? safeUrl(m.profileUrl) : '';
+
+    each('[data-srcline]', function (line) { line.hidden = !show; });
+    each('[data-src-link]', function (link) {
+      if (m && m.source) link.textContent = m.source;
+      if (url) link.setAttribute('href', url);
+    });
+    each('[data-m="asOf"]', function (node) {
+      node.textContent = (m && m.asOf) || '\u2014';
+    });
+  }
+
   // ------------------------------------------------- research themes
 
   function renderThemes(themes) {
@@ -637,6 +694,7 @@
 
   function paintAll(data) {
     var research = data.research || {};
+    renderMetrics(data.metrics);
     renderPi(data.pi);
     renderThemes(research.theme || []);
     renderResearch(research);
@@ -646,6 +704,8 @@
   }
 
   function clearDynamicChrome() {
+    each('[data-metrics]', function (box) { box.innerHTML = ''; });
+    each('[data-srcline]', function (line) { line.hidden = true; });
     var themes = el('themes');
     if (themes) themes.style.display = 'none';
   }
