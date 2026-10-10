@@ -15,7 +15,8 @@
     "refresh-metrics": "node scripts/refresh-metrics.js",
     "smoke": "node scripts/smoke-test.js",
     "check": "node scripts/check.js",
-    "audit": "bash scripts/audit-secrets.sh"
+    "audit": "bash scripts/audit-secrets.sh",
+    "snapshot": "node scripts/snapshot.js"
   },
   "dependencies": {
     "bcryptjs": "^2.4.3",
@@ -34,8 +35,5 @@
   },
   "overrides": {
     "qs": "^6.15.4"
-  },
-  "allowScripts": {
-    "mongodb-memory-server@10.4.3": true
   }
 }

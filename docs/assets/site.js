@@ -52,6 +52,18 @@
   var RETRIES = CFG.COLD_START_RETRIES == null ? 4 : Number(CFG.COLD_START_RETRIES);
   var RETRY_DELAY = CFG.COLD_START_DELAY_MS == null ? 4000 : Number(CFG.COLD_START_DELAY_MS);
 
+  /**
+   * A pre-built snapshot to read instead of the live API.
+   *
+   * Set by the static build (scripts/snapshot.js) to "content.json", which sits
+   * beside index.html and holds exactly what GET /api/content returned when the
+   * snapshot was taken, with every photo and file path rewritten to a local
+   * copy. The page then needs no server at all and can be published to GitHub
+   * Pages. Left empty, the site reads the live API as before.
+   */
+  var CONTENT_URL = String(CFG.CONTENT_URL || '').trim();
+  var IS_STATIC = CONTENT_URL !== '';
+
   function apiUrl(path) { return API_BASE + path; }
 
   /**
@@ -69,7 +81,29 @@
     if (!s) return '';
     if (/^https?:\/\//i.test(s)) return safeUrl(s);
     if (s.charAt(0) === '/') return safeUrl(apiUrl(s));
+
+    // A snapshot rewrites media to a path relative to the page, such as
+    // "media/photos/<id>.jpg". safeUrl() rejects that — it cannot tell a
+    // relative path from a bare hostname, so it would guess "https://media/…".
+    // Allow exactly this one shape: under media/, no scheme, no "..", no
+    // backslash, so it can neither escape the site nor smuggle a javascript:
+    // URL past the check.
+    if (/^media\/[A-Za-z0-9._\/-]+$/.test(s) && s.indexOf('..') === -1) return esc(s);
+
     return safeUrl(s);
+  }
+
+  /**
+   * The small version of a gallery image.
+   *
+   * Against the live API that is a query parameter. Against a snapshot it has
+   * to be a separate file, because a static host ignores the query string and
+   * would serve the full image — twenty 1600px photographs in a grid.
+   */
+  function thumbUrl(full) {
+    if (!full) return '';
+    if (IS_STATIC) return full.replace(/(\.[^./?#]+)(?=$|[?#])/, '-thumb$1');
+    return full + (full.indexOf('?') === -1 ? '?size=thumb' : '&size=thumb');
   }
 
   // The editor lives on the API host, not on the static site, so that its login
@@ -150,61 +184,6 @@
 
   var initial = (location.hash || '#home').slice(1);
   show(pages[initial] ? initial : 'home', false);
-
-  // ---------------------------------------------------------- metrics
-
-  var METRIC_TILES = [
-    { key: 'citations', label: 'Citations' },
-    { key: 'hIndex', label: 'h-index' },
-    { key: 'i10Index', label: 'i10-index' },
-    { key: 'phdScholars', label: 'Ph.D. scholars', pad: true },
-    { key: 'mtechSupervised', label: 'M.Tech. supervised', pad: true },
-    { key: 'patents', label: 'Granted patent', pad: true }
-  ];
-
-  /** document.querySelectorAll as a real array iteration. */
-  function each(selector, fn) {
-    Array.prototype.forEach.call(document.querySelectorAll(selector), fn);
-  }
-
-  /**
-   * Fill every metrics strip on the page.
-   *
-   * There is more than one — the Home hero and the Lab In-charge profile both
-   * carry the same figures — so this selects on an attribute rather than an id.
-   * getElementById returns the first match only, which is why the second strip
-   * silently stayed on its em-dash placeholders.
-   */
-  function renderMetrics(m) {
-    var boxes = document.querySelectorAll('[data-metrics]');
-    if (!boxes.length) return;
-
-    var html = '';
-    if (m) {
-      METRIC_TILES.forEach(function (t) {
-        var v = m[t.key];
-        if (v === null || v === undefined || v === '') return;  // tile omitted
-        var shown = t.pad && Number(v) < 10 ? '0' + Number(v) : String(v);
-        html += '<div><b>' + esc(shown) + '</b><small>' + esc(t.label) + '</small></div>';
-      });
-    }
-
-    Array.prototype.forEach.call(boxes, function (box) { box.innerHTML = html; });
-
-    // The attribution line follows the figures: shown only where there is both
-    // something to attribute and a source to name.
-    var show = !!m && html !== '' && !!(m.source || m.asOf);
-    var url = m ? safeUrl(m.profileUrl) : '';
-
-    each('[data-srcline]', function (line) { line.hidden = !show; });
-    each('[data-src-link]', function (link) {
-      if (m && m.source) link.textContent = m.source;
-      if (url) link.setAttribute('href', url);
-    });
-    each('[data-m="asOf"]', function (node) {
-      node.textContent = (m && m.asOf) || '—';
-    });
-  }
 
   // ------------------------------------------------- research themes
 
@@ -597,7 +576,7 @@
         : '') +
         '<div class="gallery">' + rows.map(function (it, i) {
           var full = mediaUrl(it.photo);
-          var thumb = full ? full + (full.indexOf('?') === -1 ? '?size=thumb' : '&size=thumb') : '';
+          var thumb = full ? thumbUrl(full) : '';
           if (!full) return '';
           return '<figure class="shot">' +
             '<button type="button" class="shotbtn" data-full="' + full + '" ' +
@@ -658,7 +637,6 @@
 
   function paintAll(data) {
     var research = data.research || {};
-    renderMetrics(data.metrics);
     renderPi(data.pi);
     renderThemes(research.theme || []);
     renderResearch(research);
@@ -668,15 +646,16 @@
   }
 
   function clearDynamicChrome() {
-    // Every strip, not just the first — same reason as renderMetrics.
-    each('[data-metrics]', function (box) { box.innerHTML = ''; });
-    each('[data-srcline]', function (line) { line.hidden = true; });
     var themes = el('themes');
     if (themes) themes.style.display = 'none';
   }
 
   function load(attempt) {
-    fetch(apiUrl('/api/content'), { headers: { Accept: 'application/json' } })
+    // A snapshot is a file on the same host as the page: it is either there or
+    // it is not, so a failure is never a cold start and retrying is pointless.
+    var url = IS_STATIC ? CONTENT_URL : apiUrl('/api/content');
+
+    fetch(url, { headers: { Accept: 'application/json' } })
       .then(function (r) {
         if (!r.ok) {
           var e = new Error('HTTP ' + r.status);
@@ -690,7 +669,7 @@
         // A cold start shows up as a network failure or a 502/503/504 from the
         // host's proxy while the process boots. Those are worth retrying; a 404
         // or a 400 means the URL is wrong and retrying will not help.
-        var transient = !err.status || err.status >= 502;
+        var transient = !IS_STATIC && (!err.status || err.status >= 502);
 
         if (transient && attempt <= RETRIES) {
           clearDynamicChrome();

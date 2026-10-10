@@ -1,98 +1,100 @@
-# Publishes docs/ to GitHub Pages — ALTERNATIVE DEPLOYMENT, OFF BY DEFAULT.
+# Publish a fully static snapshot of the public site to GitHub Pages.
 #
-# This site is deployed to Azure App Service (see DEPLOY-AZURE.md), which serves
-# the public pages and the API from one origin. GitHub Pages is not part of that
-# setup, so this workflow only runs when you start it by hand.
+# HOW THIS DIFFERS FROM SERVING docs/ DIRECTLY
+# --------------------------------------------
+# docs/ is a shell that fetches GET /api/content when a visitor opens it. Put
+# that on Pages and every visit still depends on the API host being awake.
 #
-# It is left here because the split deployment is a legitimate option: static
-# pages on Pages, API elsewhere. To switch to it, set the CVLAB_API_BASE
-# repository variable as described below, run this workflow from the Actions
-# tab, and set SITE_ORIGIN on the API host to your github.io origin.
+# This workflow instead runs scripts/snapshot.js, which asks the API once, here,
+# downloads every photograph and document, rewrites the references to local
+# copies, and publishes the result. The published site then makes no requests to
+# the API at all: nothing to wake, nothing to keep awake, no cold start, free
+# for ever, served from GitHub's CDN.
 #
-# Do NOT re-enable the push trigger while running on Azure: the published pages
-# would call whatever CVLAB_API_BASE says, and you would have two sites to keep
-# in step.
+# The trade is that the site shows what the database held when this last ran.
+# Edit in /admin on the API host, then run this again.
 #
-# The API URL is injected here from a repository variable rather than being
-# committed, so the URL can change without a code edit and the repository
-# carries no deployment detail.
+# SETUP, ONCE
+#   1. Settings → Pages → Source → "GitHub Actions"
+#   2. Settings → Secrets and variables → Actions → Variables → New variable
+#        Name:  CVLAB_API_BASE
+#        Value: https://cvlab-jnu.onrender.com       (no trailing slash)
 #
-# Set it once: repository → Settings → Secrets and variables → Actions →
-# Variables → New repository variable
-#     Name:  CVLAB_API_BASE
-#     Value: https://your-api-host.onrender.com      (no trailing slash)
+# No secret is needed. The snapshot reads only the public, unauthenticated
+# /api/content endpoint and the public media routes — this workflow never holds
+# a database credential or a session.
 #
-# And enable Pages: Settings → Pages → Source → "GitHub Actions".
+# SITE_ORIGIN does NOT need setting on the API host for this. The published
+# pages never call it, so there is no cross-origin read to permit.
 
-name: Deploy public site to Pages
+name: Publish static site to Pages
 
 on:
-  # Manual only. Adding a push trigger here would fail every build while
-  # CVLAB_API_BASE is unset, which is the correct state for an Azure deployment.
   workflow_dispatch:
+
+  # A weekly rebuild picks up anything edited in /admin without you having to
+  # remember, and the request that wakes the API also stops Atlas treating the
+  # cluster as idle. Delete this block if you would rather publish only by hand.
+  schedule:
+    - cron: '41 2 * * 0'      # Sundays, 02:41 UTC (08:11 IST)
 
 permissions:
   contents: read
   pages: write
   id-token: write
 
-# Never run two deploys at once; cancel an in-flight one if a newer push lands.
 concurrency:
   group: pages
   cancel-in-progress: true
 
 jobs:
-  deploy:
+  publish:
     runs-on: ubuntu-latest
     environment:
       name: github-pages
       url: ${{ steps.deployment.outputs.page_url }}
+
     steps:
       - uses: actions/checkout@v4
 
-      - name: Point the site at the API
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '22.x'
+          cache: npm
+
+      - run: npm ci
+
+      - name: Check the offline tests still pass
+        run: npm run check
+
+      - name: Build the snapshot
         env:
           API_BASE: ${{ vars.CVLAB_API_BASE }}
         run: |
           if [ -z "$API_BASE" ]; then
             echo "::error::Repository variable CVLAB_API_BASE is not set."
-            echo "Set it under Settings → Secrets and variables → Actions → Variables."
-            echo "Without it the published pages would call themselves and show no content."
+            echo "Settings → Secrets and variables → Actions → Variables."
+            echo "Without it there is no API to snapshot."
             exit 1
           fi
-          # Trim any trailing slash, then substitute the placeholder in config.js.
-          API_BASE="${API_BASE%/}"
-          python3 - "$API_BASE" <<'PY'
-          import re, sys
-          base = sys.argv[1]
-          path = 'docs/assets/config.js'
-          src = open(path).read()
-          out, n = re.subn(r"API_BASE:\s*'[^']*'", "API_BASE: '%s'" % base, src, count=1)
-          if n != 1:
-              sys.exit('could not find the API_BASE line in %s' % path)
-          open(path, 'w').write(out)
-          print('config.js now points at ' + base)
-          PY
-          grep -n "API_BASE:" docs/assets/config.js
+          # snapshot.js retries a sleeping host for about a minute before
+          # giving up, and fails the build rather than publishing a site with
+          # missing photographs. A failed build leaves the live site untouched.
+          npm run snapshot -- --api "${API_BASE%/}" --out dist
 
-      - name: Check the API is reachable
-        env:
-          API_BASE: ${{ vars.CVLAB_API_BASE }}
+      - name: Report what is being published
         run: |
-          # A warning, not a failure: a sleeping free host is normal and the
-          # pages handle it with a retry.
-          code=$(curl -s -o /dev/null -w '%{http_code}' --max-time 75 "${API_BASE%/}/api/health" || echo 000)
-          if [ "$code" = "200" ]; then
-            echo "API health check OK."
-          else
-            echo "::warning::API health check returned $code. If the host sleeps this is expected; if the site shows no content, check SITE_ORIGIN on the API."
-          fi
+          echo "### Published" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "- Snapshot taken: $(node -p "require('./dist/content.json').snapshotAt")" >> $GITHUB_STEP_SUMMARY
+          echo "- Files: $(find dist -type f | wc -l)" >> $GITHUB_STEP_SUMMARY
+          echo "- Size: $(du -sh dist | cut -f1)" >> $GITHUB_STEP_SUMMARY
 
       - uses: actions/configure-pages@v5
 
       - uses: actions/upload-pages-artifact@v3
         with:
-          path: docs
+          path: dist
 
       - id: deployment
         uses: actions/deploy-pages@v4
