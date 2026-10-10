@@ -388,3 +388,12 @@ img.avatar{object-fit:cover;background:var(--surface-2)}
   font-size:2rem;line-height:1;cursor:pointer;padding:.2rem .5rem;border-radius:3px;
 }
 .lb-close:hover{background:rgba(255,255,255,.12)}
+
+/* ---------- CV download ---------- */
+/* Reads as the primary action in the links row: filled rather than outlined,
+   so it is distinguishable at a glance from the profile links beside it. */
+.links a.cvbtn{
+  background:var(--accent); color:#fff; border-color:var(--accent);
+}
+.links a.cvbtn:hover{ filter:brightness(1.08); }
+:root[data-theme="dark"] .links a.cvbtn{ color:#0b0f14; }

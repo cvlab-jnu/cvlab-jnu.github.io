@@ -108,6 +108,23 @@
 
   // The editor lives on the API host, not on the static site, so that its login
   // stays same-origin with the API it calls.
+  /**
+   * The CV download.
+   *
+   * Live, the API generates the PDF from the database on request. In a
+   * published snapshot there is no API, so snapshot.js saves a copy beside the
+   * page and this points at that instead. Either way the button is a plain
+   * link to a PDF.
+   */
+  (function () {
+    var links = document.querySelectorAll('[data-cv-link]');
+    if (!links.length) return;
+    var href = IS_STATIC ? 'media/cv.pdf' : apiUrl('/api/cv');
+    Array.prototype.forEach.call(links, function (a) {
+      a.setAttribute('href', href);
+    });
+  })();
+
   var adminLink = el('adminlink');
   if (adminLink) adminLink.setAttribute('href', apiUrl('/admin'));
   function nl2list(text) {
@@ -289,7 +306,7 @@
     { kind: 'conference', id: 'r-conf', rail: 'Conferences', head: 'Conference publications', style: 'numbered' },
     { kind: 'talk', id: 'r-talks', rail: 'Invited talks', head: 'Invited talks', style: 'timeline' },
     { kind: 'organized', id: 'r-organized', rail: 'Organized', head: 'Events organized', style: 'plain' },
-    { kind: 'chaired', id: 'r-chaired', rail: 'Chaired', head: 'Conferences chaired', style: 'plain' }
+    { kind: 'chaired', id: 'r-chaired', rail: 'Sessions chaired', head: 'Sessions chaired', style: 'plain' }
   ];
 
   function citation(item) {

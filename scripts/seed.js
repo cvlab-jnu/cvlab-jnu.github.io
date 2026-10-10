@@ -23,6 +23,7 @@ const Member = require('../src/models/Member');
 const ResearchItem = require('../src/models/ResearchItem');
 const Course = require('../src/models/Course');
 const Metrics = require('../src/models/Metrics');
+const Profile = require('../src/models/Profile');
 
 const data = require(path.join(__dirname, 'seed-data.json'));
 
@@ -69,6 +70,17 @@ async function main() {
     { $set: data.metrics },
     { upsert: true, new: true, setDefaultsOnInsert: true }
   );
+
+  // The CV's narrative sections — education, appointments, service — have no
+  // other home, so they are seeded like the metrics: upserted, not skipped.
+  if (data.profile) {
+    await Profile.findByIdAndUpdate(
+      'current',
+      { $set: data.profile },
+      { upsert: true, new: true, setDefaultsOnInsert: true }
+    );
+    console.log('[seed] profile document written');
+  }
 
   console.log(
     `[seed] members +${counts.members}  research +${counts.research}  ` +

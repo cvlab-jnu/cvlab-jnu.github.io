@@ -18,6 +18,8 @@ const GalleryItem = require('./src/models/GalleryItem');
 
 const authRoutes = require('./src/routes/auth');
 const metricsRoutes = require('./src/routes/metrics');
+const profileRoutes = require('./src/routes/profile');
+const cvRoutes = require('./src/routes/cv');
 const contentRoutes = require('./src/routes/content');
 const photoRoutes = require('./src/routes/photos');
 const fileRoutes = require('./src/routes/files');
@@ -106,11 +108,19 @@ app.use('/api/files', fileRoutes);
 
 app.use('/api/auth', authRoutes);
 app.use('/api/metrics', metricsRoutes);
+app.use('/api/profile', profileRoutes);
+
+// The generated CV. Public, and cross-origin readable, so the static site can
+// link to it directly while the snapshot takes its own copy at publish time.
+app.use('/api/cv', cvRoutes);
 
 app.use(
   '/api/members',
   crudRouter(Member, {
     sort: { order: 1, name: 1 },
+    // Each cohort is its own ordered list: moving a Ph.D. scholar must not
+    // renumber the M.Tech. students.
+    scope: ['group'],
     fields: [
       'name', 'group', 'topic', 'period', 'email',
       'links', 'photo', 'currentPosition', 'order', 'visible',
@@ -122,6 +132,8 @@ app.use(
   '/api/research',
   crudRouter(ResearchItem, {
     sort: { order: 1, year: -1, _id: 1 },
+    // Journals, conferences, chapters, patents and talks each order separately.
+    scope: ['kind'],
     fields: [
       'kind', 'title', 'authors', 'venue', 'date', 'year', 'detail',
       'doi', 'url', 'image', 'imageCaption', 'tags', 'label', 'body',
@@ -134,6 +146,7 @@ app.use(
   '/api/courses',
   crudRouter(Course, {
     sort: { order: 1, title: 1 },
+    scope: [],                       // one list
     fields: [
       'slug', 'title', 'designation', 'semester', 'level', 'ltp', 'category',
       'description', 'units', 'resources', 'reading', 'current', 'order', 'visible',
@@ -145,6 +158,7 @@ app.use(
   '/api/gallery',
   crudRouter(GalleryItem, {
     sort: { order: 1, createdAt: -1 },
+    scope: [],                       // one list
     fields: ['photo', 'caption', 'album', 'taken', 'order', 'visible'],
   })
 );

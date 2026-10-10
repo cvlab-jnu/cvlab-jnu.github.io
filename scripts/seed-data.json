@@ -1088,5 +1088,188 @@
     "asOf": "August 2026",
     "source": "Google Scholar",
     "profileUrl": "https://scholar.google.com/citations?user=ftr72kcAAAAJ"
+  },
+  "profile": {
+    "_id": "current",
+    "name": "Dr. Ankit Kumar Jaiswal",
+    "title": "Assistant Professor | Computer Science and Engineering",
+    "affiliation": "School of Engineering, Jawaharlal Nehru University (JNU), New Delhi, India",
+    "email": "ankitjaiswal@jnu.ac.in",
+    "phone": "+91-9415349235",
+    "scholarUrl": "https://scholar.google.com/citations?user=ftr72kcAAAAJ",
+    "orcid": "0000-0003-1736-9157",
+    "linkedin": "ankitjaiswal15",
+    "webpage": "https://cvlab-jnu.github.io",
+    "researchInterests": "Digital Image Processing, Computer Vision, Digital Image Forensics, Artificial Intelligence, Machine Learning, Deep Learning, Image Forgery Detection and Localization, Deepfake Detection, Multimedia Security, Image Authentication, and Pattern Recognition",
+    "appointments": [
+      {
+        "title": "Assistant Professor",
+        "org": "School of Engineering, Jawaharlal Nehru University (JNU), New Delhi, India",
+        "period": "March 2023 – Present",
+        "detail": "",
+        "order": 0
+      },
+      {
+        "title": "Assistant Professor",
+        "org": "Thapar Institute of Engineering and Technology, Patiala, India",
+        "period": "August 2022 – February 2023",
+        "detail": "",
+        "order": 1
+      },
+      {
+        "title": "Assistant Professor",
+        "org": "Bennett University, Greater Noida, India",
+        "period": "September 2021 – July 2022",
+        "detail": "",
+        "order": 2
+      },
+      {
+        "title": "Assistant Programmer",
+        "org": "Sun Integrated Technologies and Applications, Delhi, India",
+        "period": "June 2014 – July 2015",
+        "detail": "",
+        "order": 3
+      }
+    ],
+    "education": [
+      {
+        "title": "Ph.D. in Computer Science and Engineering",
+        "org": "Indian Institute of Technology (BHU), Varanasi, India",
+        "period": "2017 – 2021",
+        "detail": "CGPA 9.0/10 · Awarded 14 July 2021 · Defence 17 January 2022",
+        "order": 0
+      },
+      {
+        "title": "M.Tech. in Computer Science and Engineering",
+        "org": "Madan Mohan Malaviya University of Technology, Gorakhpur, India",
+        "period": "2015 – 2017",
+        "detail": "CGPA 7.94/10",
+        "order": 1
+      },
+      {
+        "title": "B.Tech. in Computer Science and Engineering",
+        "org": "Dr. A.P.J. Abdul Kalam Technical University, Lucknow, India",
+        "period": "2010 – 2014",
+        "detail": "71.62%",
+        "order": 2
+      }
+    ],
+    "qualifications": [
+      {
+        "label": "GATE",
+        "text": "Qualified Graduate Aptitude Test in Engineering in 2014 and 2017.",
+        "order": 0
+      },
+      {
+        "label": "UGC NET",
+        "text": "Qualified UGC National Eligibility Test for JRF and Assistant Professor, June 2020.",
+        "order": 1
+      }
+    ],
+    "service": [
+      {
+        "label": "Examination Coordinator",
+        "text": "Coordination and management of examination-related academic activities.",
+        "order": 0
+      },
+      {
+        "label": "Chairman, Website and Social Media Committee",
+        "text": "School website content, digital presence and social media activities.",
+        "order": 1
+      },
+      {
+        "label": "Coordinator, M.Tech. Dissertation Allocation and Evaluation",
+        "text": "Allocation, monitoring and evaluation of M.Tech. dissertations.",
+        "order": 2
+      },
+      {
+        "label": "Member, Technical Advisory-cum-Purchase Committee",
+        "text": "Technical evaluation, recommendations and procurement-related activities.",
+        "order": 3
+      },
+      {
+        "label": "Club Coordinator",
+        "text": "Supervision of student clubs and associated academic and extracurricular initiatives.",
+        "order": 4
+      },
+      {
+        "label": "Single Point of Contact (SPOC), Smart India Hackathon 2026",
+        "text": "Institutional coordinator for student participation and hackathon-related activities.",
+        "order": 5
+      }
+    ],
+    "awards": [
+      {
+        "title": "Best Paper Award",
+        "org": "3rd International Conference on Data Analytics & Management (ICDAM-2022), Poland",
+        "period": "2022",
+        "detail": "",
+        "order": 0
+      },
+      {
+        "title": "Second Position, Blind Coding Event",
+        "org": "NIET Ebullience-12, Greater Noida",
+        "period": "",
+        "detail": "",
+        "order": 1
+      },
+      {
+        "title": "Second Position, Hackathon (Internet Security) Event",
+        "org": "NIET Faction-13, Greater Noida",
+        "period": "",
+        "detail": "",
+        "order": 2
+      },
+      {
+        "title": "Semifinalist, PRGYAAN 2.0 (G.K. Quiz)",
+        "org": "Chitkara University, Punjab",
+        "period": "2011",
+        "detail": "",
+        "order": 3
+      }
+    ],
+    "training": [
+      {
+        "label": "Ethical Hacking Levels 1 & 2",
+        "text": "Galgotias College of Engineering and Technology, Greater Noida, March 2012.",
+        "order": 0
+      },
+      {
+        "label": "International Research Workshop on Cloud Computing",
+        "text": "Jawaharlal Nehru University, New Delhi, December 2016.",
+        "order": 1
+      },
+      {
+        "label": "Short-Term Course on Advances of Computation Technology",
+        "text": "MMM University of Technology, Gorakhpur, February 2017.",
+        "order": 2
+      },
+      {
+        "label": "Wavelets and Their Application in Signal and Image Processing",
+        "text": "GIAN, IIT (BHU), 21–25 December 2017.",
+        "order": 3
+      },
+      {
+        "label": "Media Security and Forensics",
+        "text": "GIAN, IIT Indore, 26 March – 6 April 2018.",
+        "order": 4
+      },
+      {
+        "label": "Short-Term Course on Machine Learning in Image and Video Analytics",
+        "text": "IIT (BHU).",
+        "order": 5
+      }
+    ],
+    "skills": "Programming languages: Python, C, Java, C#.  Database management systems: MySQL, MS SQL Server, MongoDB.  Web technologies: HTML, CSS, JavaScript, PHP, ASP.NET Web Forms.  Tools: MATLAB, Anaconda, Visual Studio.",
+    "certifications": [
+      {
+        "title": "Microsoft Certified Solution Developer",
+        "org": "70-483 Programming in C#; 70-484 Essentials of Developing Windows Store Apps using C#; 70-485 Advanced Windows Store App Development using C#",
+        "period": "",
+        "detail": "",
+        "order": 0
+      }
+    ],
+    "email2": "ankit1511@hotmail.com"
   }
 }

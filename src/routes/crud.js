@@ -3,6 +3,7 @@
 const express = require('express');
 const mongoose = require('mongoose');
 const { requireAdmin, attachAdmin } = require('../middleware/auth');
+const { placeAt, renumberOps, scopeFilter } = require('../lib/ordering');
 
 /**
  * Builds a REST router for one model.
@@ -22,7 +23,75 @@ function crudRouter(Model, options) {
   const opts = options || {};
   const fields = opts.fields || [];
   const sort = opts.sort || { order: 1, _id: 1 };
+
+  // Which fields partition this collection into separate ordered lists.
+  // Members order within their group; research within its kind; courses and
+  // the gallery are each a single list.
+  const scopeFields = opts.scope || [];
+
   const router = express.Router();
+
+  /**
+   * Renumber one list densely, 0..n-1, closing any gaps.
+   *
+   * Needed after a deletion, and after a row leaves one list for another — the
+   * list it left keeps a hole otherwise.
+   */
+  async function compact(filter) {
+    const siblings = await Model.find(filter)
+      .select('_id order')
+      .sort(sort)
+      .limit(2000)
+      .lean();
+
+    const ops = renumberOps(
+      siblings.map((s) => String(s._id)),
+      new Map(siblings.map((s) => [String(s._id), s.order]))
+    );
+    if (ops.length) await Model.bulkWrite(ops);
+  }
+
+  /**
+   * Put `doc` at the position its `order` asks for, shifting the rest.
+   *
+   * Called after a create or an update, so the saved document is already in the
+   * collection and its new scope is known. Reads the list it belongs to, works
+   * out the new sequence, and writes back a dense 0..n-1 renumbering.
+   *
+   * Only rows whose order actually changes are written, so saving a row that is
+   * already in the right place costs one read and no writes.
+   */
+  async function reposition(doc, requestedOrder) {
+    const filter = scopeFilter(doc, scopeFields);
+
+    const siblings = await Model.find(filter)
+      .select('_id order')
+      .sort(sort)
+      .limit(2000)
+      .lean();
+
+    const currentOrders = new Map(siblings.map((s) => [String(s._id), s.order]));
+    const currentIds = siblings.map((s) => String(s._id));
+
+    // An update that did not mention order leaves the row where it is.
+    const target = requestedOrder === undefined
+      ? currentIds.indexOf(String(doc._id))
+      : requestedOrder;
+
+    const ids = placeAt(currentIds, String(doc._id), target);
+    const ops = renumberOps(ids, currentOrders);
+
+    if (ops.length) await Model.bulkWrite(ops);
+
+    // Hand back the saved document with the order it ended up with, so the
+    // editor shows the real position rather than what was typed.
+    const finalOrder = ids.indexOf(String(doc._id));
+    if (doc.order !== finalOrder) {
+      doc.order = finalOrder;
+      if (typeof doc.save === 'function') await doc.save();
+    }
+    return doc;
+  }
 
   function pick(body) {
     const out = {};
@@ -69,7 +138,16 @@ function crudRouter(Model, options) {
 
   router.post('/', requireAdmin, async (req, res, next) => {
     try {
-      const doc = await Model.create(pick(req.body));
+      const body = pick(req.body);
+
+      // A new row with no position goes to the end of its list, which is what
+      // "add" means. One typed in goes exactly there, pushing the rest down.
+      const requested = Object.prototype.hasOwnProperty.call(body, 'order')
+        ? Number(body.order)
+        : Number.POSITIVE_INFINITY;
+
+      const doc = await Model.create(body);
+      await reposition(doc, requested);
       res.status(201).json(doc);
     } catch (err) {
       next(err);
@@ -81,12 +159,36 @@ function crudRouter(Model, options) {
       if (!mongoose.isValidObjectId(req.params.id)) {
         return res.status(400).json({ error: 'Not a valid id.' });
       }
+
+      const body = pick(req.body);
+      const requested = Object.prototype.hasOwnProperty.call(body, 'order')
+        ? Number(body.order)
+        : undefined;
+
+      // Which list this row is in BEFORE the update. If it moves to another
+      // cohort or kind, the one it leaves needs its gap closed — repositioning
+      // only renumbers the list the row arrives in.
+      const before = scopeFields.length
+        ? await Model.findById(req.params.id).select(scopeFields.join(' ')).lean()
+        : null;
+      const previousFilter = before ? scopeFilter(before, scopeFields) : null;
+
       const doc = await Model.findByIdAndUpdate(
         req.params.id,
-        { $set: pick(req.body) },
+        { $set: body },
         { new: true, runValidators: true }
       );
       if (!doc) return res.status(404).json({ error: 'Not found.' });
+
+      // Reposition after the update, so a row that moved to another group is
+      // placed in its NEW list rather than its old one.
+      await reposition(doc, requested);
+
+      const nowFilter = scopeFilter(doc, scopeFields);
+      if (previousFilter && JSON.stringify(previousFilter) !== JSON.stringify(nowFilter)) {
+        await compact(previousFilter);
+      }
+
       res.json(doc);
     } catch (err) {
       next(err);
@@ -100,6 +202,10 @@ function crudRouter(Model, options) {
       }
       const doc = await Model.findByIdAndDelete(req.params.id);
       if (!doc) return res.status(404).json({ error: 'Not found.' });
+
+      // Close the gap the deletion left, so positions stay 0..n-1.
+      await compact(scopeFilter(doc, scopeFields));
+
       res.json({ ok: true, deleted: doc._id });
     } catch (err) {
       next(err);
