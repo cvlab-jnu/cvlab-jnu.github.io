@@ -655,6 +655,9 @@
           return '<figure class="shot">' +
             '<button type="button" class="shotbtn" data-full="' + full + '" ' +
               'data-caption="' + esc(it.caption || '') + '" ' +
+              // The album name and position let the lightbox step through
+              // THIS album rather than every photograph on the page.
+              'data-album="' + esc(name) + '" data-index="' + i + '" ' +
               'aria-label="View larger: ' + esc(it.caption || 'photograph ' + (i + 1)) + '">' +
               '<img src="' + thumb + '" alt="' + esc(it.caption || '') + '" loading="lazy">' +
             '</button>' +
@@ -668,35 +671,120 @@
     }).join('');
   }
 
-  /* Lightbox. Built once and reused; Escape and a click outside close it. */
+  /**
+   * Lightbox, as a slider over one album.
+   *
+   * The arrows move within the album that was clicked, not across the whole
+   * page: two albums shown one under the other are two separate sequences, and
+   * stepping from the last photograph of one into the first of another would
+   * be confusing rather than convenient.
+   *
+   * The album is read back out of the DOM at open time rather than captured
+   * when the gallery rendered, so it stays correct if the page repaints.
+   */
   var lightbox = null;
-  function openLightbox(src, caption) {
-    if (!lightbox) {
-      lightbox = document.createElement('div');
-      lightbox.className = 'lightbox';
-      lightbox.hidden = true;
-      lightbox.innerHTML =
-        '<button type="button" class="lb-close" aria-label="Close">&times;</button>' +
-        '<figure><img alt=""><figcaption></figcaption></figure>';
-      document.body.appendChild(lightbox);
+  var lbShots = [];      // the buttons of the album being viewed
+  var lbAt = 0;
 
-      lightbox.addEventListener('click', function (e) {
-        if (e.target === lightbox || e.target.closest('.lb-close')) closeLightbox();
-      });
-      document.addEventListener('keydown', function (e) {
-        if (e.key === 'Escape' && !lightbox.hidden) closeLightbox();
-      });
-    }
+  function lbBuild() {
+    lightbox = document.createElement('div');
+    lightbox.className = 'lightbox';
+    lightbox.hidden = true;
+    lightbox.innerHTML =
+      '<button type="button" class="lb-close" aria-label="Close">&times;</button>' +
+      '<button type="button" class="lb-nav lb-prev" aria-label="Previous photograph">&#8249;</button>' +
+      '<button type="button" class="lb-nav lb-next" aria-label="Next photograph">&#8250;</button>' +
+      '<figure><img alt=""><figcaption></figcaption></figure>' +
+      '<p class="lb-count" aria-live="polite"></p>';
+    document.body.appendChild(lightbox);
+
+    lightbox.addEventListener('click', function (e) {
+      if (e.target.closest('.lb-prev')) return lbStep(-1);
+      if (e.target.closest('.lb-next')) return lbStep(1);
+      // A click on the backdrop closes; a click on the picture does not, so
+      // that reaching for the image does not dismiss it.
+      if (e.target === lightbox || e.target.closest('.lb-close')) closeLightbox();
+    });
+
+    document.addEventListener('keydown', function (e) {
+      if (!lightbox || lightbox.hidden) return;
+      if (e.key === 'Escape') return closeLightbox();
+      if (e.key === 'ArrowRight') { e.preventDefault(); lbStep(1); }
+      if (e.key === 'ArrowLeft') { e.preventDefault(); lbStep(-1); }
+      if (e.key === 'Home') { e.preventDefault(); lbShow(0); }
+      if (e.key === 'End') { e.preventDefault(); lbShow(lbShots.length - 1); }
+    });
+
+    // Swipe, because on a phone the arrows are small and the gesture is the
+    // one people already expect from a photo viewer.
+    var x0 = null;
+    lightbox.addEventListener('touchstart', function (e) {
+      x0 = e.changedTouches[0].clientX;
+    }, { passive: true });
+    lightbox.addEventListener('touchend', function (e) {
+      if (x0 === null) return;
+      var dx = e.changedTouches[0].clientX - x0;
+      x0 = null;
+      if (Math.abs(dx) > 45) lbStep(dx < 0 ? 1 : -1);
+    }, { passive: true });
+  }
+
+  /** Move by n, wrapping at both ends so the album is a loop. */
+  function lbStep(n) {
+    if (lbShots.length < 2) return;
+    lbShow((lbAt + n + lbShots.length) % lbShots.length);
+  }
+
+  function lbShow(i) {
+    if (!lbShots.length) return;
+    lbAt = i;
+
+    var btn = lbShots[i];
+    var src = btn.getAttribute('data-full');
+    var caption = btn.getAttribute('data-caption') || '';
+
     var img = lightbox.querySelector('img');
     var cap = lightbox.querySelector('figcaption');
     img.setAttribute('src', src);
-    img.setAttribute('alt', caption || '');
-    cap.textContent = caption || '';
+    img.setAttribute('alt', caption);
+    cap.textContent = caption;
     cap.hidden = !caption;
+
+    var many = lbShots.length > 1;
+    lightbox.querySelector('.lb-count').textContent =
+      many ? (i + 1) + ' / ' + lbShots.length : '';
+    lightbox.querySelector('.lb-prev').hidden = !many;
+    lightbox.querySelector('.lb-next').hidden = !many;
+
+    // Warm the neighbours so stepping does not flash a blank frame.
+    if (many) {
+      [(i + 1) % lbShots.length, (i - 1 + lbShots.length) % lbShots.length]
+        .forEach(function (j) {
+          var next = new Image();
+          next.src = lbShots[j].getAttribute('data-full');
+        });
+    }
+  }
+
+  function openLightbox(btn) {
+    if (!lightbox) lbBuild();
+
+    // Everything in the same album, in page order.
+    var album = btn.getAttribute('data-album') || '';
+    lbShots = Array.prototype.slice.call(
+      document.querySelectorAll('.shotbtn')
+    ).filter(function (b) {
+      return (b.getAttribute('data-album') || '') === album;
+    });
+
+    var at = lbShots.indexOf(btn);
+    lbShow(at === -1 ? 0 : at);
+
     lightbox.hidden = false;
     document.body.style.overflow = 'hidden';
     lightbox.querySelector('.lb-close').focus();
   }
+
   function closeLightbox() {
     if (lightbox) lightbox.hidden = true;
     document.body.style.overflow = '';
@@ -704,7 +792,7 @@
 
   document.addEventListener('click', function (e) {
     var btn = e.target.closest ? e.target.closest('.shotbtn') : null;
-    if (btn) openLightbox(btn.getAttribute('data-full'), btn.getAttribute('data-caption'));
+    if (btn) openLightbox(btn);
   });
 
   // ------------------------------------------------------------- load

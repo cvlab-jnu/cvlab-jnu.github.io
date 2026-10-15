@@ -266,6 +266,26 @@ async function main() {
       'db.js must set promoteBuffers:true or lean() photo reads serve JSON');
   });
 
+  await check('the lightbox steps within one album, not across the page', () => {
+    const fs = require('fs');
+    const path = require('path');
+    const js = fs.readFileSync(path.join(__dirname, '..', 'docs', 'assets', 'site.js'), 'utf8');
+
+    // Each thumbnail must carry its album, or the slider cannot tell where one
+    // sequence ends and the next begins.
+    assert.ok(/data-album="/.test(js), 'thumbnails do not carry data-album');
+
+    // And the slider must filter on it. Without this it would collect every
+    // .shotbtn on the page and run the two albums together.
+    assert.ok(/getAttribute\('data-album'\)/.test(js),
+      'the lightbox does not read data-album');
+    assert.ok(/lbStep|lb-prev|lb-next/.test(js), 'the slider controls are missing');
+
+    // Arrow keys are the thing that was actually asked for.
+    assert.ok(/ArrowRight/.test(js) && /ArrowLeft/.test(js),
+      'the arrow keys are not handled');
+  });
+
   await check('a gallery photograph gets a size budget, a portrait does not', () => {
     const { VARIANTS } = require('../src/routes/photos');
     assert.ok(VARIANTS.gallery.targetBytes >= 300 * 1024,

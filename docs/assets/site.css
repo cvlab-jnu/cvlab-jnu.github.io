@@ -397,3 +397,31 @@ img.avatar{object-fit:cover;background:var(--surface-2)}
 }
 .links a.cvbtn:hover{ filter:brightness(1.08); }
 :root[data-theme="dark"] .links a.cvbtn{ color:#0b0f14; }
+
+/* ---------- lightbox slider ---------- */
+.lb-nav{
+  position:fixed; top:50%; transform:translateY(-50%);
+  width:52px; height:52px; border-radius:50%;
+  display:grid; place-items:center;
+  font-size:1.9rem; line-height:1; padding-bottom:.18em;
+  color:#fff; background:rgba(16,22,28,.62);
+  border:1px solid rgba(255,255,255,.26);
+  cursor:pointer; transition:background .15s, border-color .15s;
+}
+.lb-nav:hover{ background:rgba(16,22,28,.88); border-color:rgba(255,255,255,.5); }
+.lb-nav:focus-visible{ outline:2px solid #fff; outline-offset:2px; }
+.lb-prev{ left:max(1rem, 3vw); }
+.lb-next{ right:max(1rem, 3vw); }
+.lb-count{
+  position:fixed; bottom:1.15rem; left:50%; transform:translateX(-50%);
+  margin:0; font-family:var(--mono); font-size:.72rem; letter-spacing:.09em;
+  color:rgba(255,255,255,.72);
+}
+/* On a narrow screen the arrows would sit on top of the photograph, so they
+   drop to the bottom corners where a thumb can reach them. */
+@media (max-width:640px){
+  .lb-nav{ top:auto; bottom:1rem; transform:none; width:46px; height:46px; }
+  .lb-prev{ left:1.1rem; }
+  .lb-next{ right:1.1rem; }
+  .lb-count{ bottom:1.6rem; }
+}
