@@ -25,12 +25,37 @@ const router = express.Router();
  *             passport-style photograph arrives.
  *   figure    fits inside a box, aspect ratio preserved, never cropped. A
  *             graphical abstract or result panel next to a publication.
- *   gallery   same as figure but larger, plus a thumbnail for the grid.
+ *   gallery   a photograph to be looked at, so it gets the most pixels and a
+ *             quality budget rather than a fixed quality: the encoder keeps
+ *             the best quality that fits in `targetBytes`. Aspect ratio is
+ *             never changed — "inside" scales, it does not crop.
+ *
+ * `targetBytes`, where set, is a ceiling the encoder works down to from the
+ * best quality. A fixed quality number cannot do this: the same setting gives
+ * 40 kB for a flat slide and 900 kB for a detailed photograph, so either the
+ * photographs are starved or the database fills with slides.
  */
 const VARIANTS = {
-  portrait: { width: 700, height: 900, fit: 'cover', position: 'attention', thumb: 0, lossless: false },
-  figure:   { width: 1400, height: 1400, fit: 'inside', position: 'centre', thumb: 0, lossless: true },
-  gallery:  { width: 1600, height: 1600, fit: 'inside', position: 'centre', thumb: 400, lossless: false },
+  portrait: {
+    width: 700, height: 900, fit: 'cover', position: 'attention',
+    thumb: 0, lossless: false, quality: 82,
+  },
+  figure: {
+    width: 1400, height: 1400, fit: 'inside', position: 'centre',
+    thumb: 0, lossless: true, quality: 82,
+  },
+  gallery: {
+    width: 2000, height: 2000, fit: 'inside', position: 'centre',
+    lossless: false,
+    // Up to 150 kB for the full image, at the highest quality that fits.
+    targetBytes: 150 * 1024,
+    quality: 92,
+    // The grid is a wall of thumbnails, so these stay small — but 600px keeps
+    // them sharp on a high-density screen, where 400px looked soft.
+    thumb: 600,
+    thumbTargetBytes: 70 * 1024,
+    thumbQuality: 86,
+  },
 };
 
 const DEFAULT_VARIANT = 'portrait';
@@ -65,6 +90,56 @@ const MAX_UPLOAD_BYTES = 12 * 1024 * 1024;
 // small file that expands to gigabytes in memory — 100 megapixels is far beyond
 // any real portrait.
 const MAX_PIXELS = 100 * 1000 * 1000;
+
+/**
+ * Encode to JPEG at the best quality that fits a byte budget.
+ *
+ * Without a budget this is one encode at the given quality, which is what the
+ * portrait and figure variants want. With one, it steps the quality down until
+ * the result fits — so a flat, easily-compressed picture keeps its detail
+ * instead of being thrown away at a fixed low quality, and a dense photograph
+ * is still bounded.
+ *
+ * If nothing fits even at the lowest step, the smallest attempt is returned
+ * rather than failing: a slightly-over-budget photograph is a better outcome
+ * than a rejected upload.
+ */
+const QUALITY_STEPS = [92, 88, 84, 80, 76, 72, 68, 62];
+
+/**
+ * Fractions of the target size to fall back to when quality alone cannot meet
+ * the budget. A very detailed photograph can exceed 150 kB even at quality 62,
+ * and at that point further quality cuts look far worse than a slightly
+ * smaller image. Aspect ratio is untouched at every step.
+ */
+const SCALE_STEPS = [1, 0.8, 0.64];
+
+async function encodeWithinBudget(makePipeline, { quality, maxBytes, width, height }) {
+  const encode = (q, scale) => {
+    const p = makePipeline();
+    const resized = width
+      ? p.resize(Math.round(width * scale), Math.round((height || width) * scale),
+                 { fit: 'inside', withoutEnlargement: true })
+      : p;
+    return resized
+      .jpeg({ quality: q, mozjpeg: true, progressive: true })
+      .toBuffer({ resolveWithObject: true });
+  };
+
+  if (!maxBytes) return encode(quality, 1);
+
+  const steps = QUALITY_STEPS.filter((q) => q <= quality);
+  if (!steps.length) steps.push(quality);
+
+  let last = null;
+  for (const scale of SCALE_STEPS) {
+    for (const q of steps) {
+      last = await encode(q, scale);
+      if (last.data.length <= maxBytes) return last;
+    }
+  }
+  return last;
+}
 
 const upload = multer({
   storage: multer.memoryStorage(),
@@ -159,9 +234,20 @@ router.post('/', requireAdmin, upload.single('photo'), async (req, res, next) =>
         withoutEnlargement: V.fit === 'inside',
       });
 
-      const asJpeg = await fitted()
-        .jpeg({ quality: 82, mozjpeg: true, progressive: true })
-        .toBuffer({ resolveWithObject: true });
+      // Work down from the best quality and keep the first encode that fits
+      // the budget. Measuring beats guessing: how many bytes a given quality
+      // costs depends entirely on the picture.
+      const asJpeg = await encodeWithinBudget(
+        // With a budget the encoder does the resizing, so it can step the
+        // dimensions down; without one it gets the already-fitted pipeline.
+        V.targetBytes ? base : fitted,
+        {
+          quality: V.quality || 82,
+          maxBytes: V.targetBytes,
+          width: V.targetBytes ? V.width : 0,
+          height: V.targetBytes ? V.height : 0,
+        }
+      );
 
       output = asJpeg.data;
       outMeta = asJpeg.info;
@@ -186,10 +272,11 @@ router.post('/', requireAdmin, upload.single('photo'), async (req, res, next) =>
       }
 
       if (V.thumb) {
-        const t = await base()
-          .resize(V.thumb, V.thumb, { fit: 'cover', position: 'attention' })
-          .jpeg({ quality: 78, mozjpeg: true })
-          .toBuffer({ resolveWithObject: true });
+        // The thumbnail is a fixed square crop, so only quality moves here.
+        const t = await encodeWithinBudget(
+          () => base().resize(V.thumb, V.thumb, { fit: 'cover', position: 'attention' }),
+          { quality: V.thumbQuality || 78, maxBytes: V.thumbTargetBytes }
+        );
         thumb = t.data;
         thumbMeta = t.info;
       }

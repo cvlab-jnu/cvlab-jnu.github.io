@@ -266,6 +266,41 @@ async function main() {
       'db.js must set promoteBuffers:true or lean() photo reads serve JSON');
   });
 
+  await check('a gallery photograph gets a size budget, a portrait does not', () => {
+    const { VARIANTS } = require('../src/routes/photos');
+    assert.ok(VARIANTS.gallery.targetBytes >= 100 * 1024,
+      'the gallery budget is too mean for a photograph');
+    assert.ok(VARIANTS.gallery.width >= 1600, 'gallery images should be large');
+    assert.ok(VARIANTS.gallery.thumb >= 500, 'grid thumbnails look soft below 500px');
+    assert.ok(!VARIANTS.portrait.targetBytes,
+      'a portrait is a fixed crop and needs no budget');
+    assert.strictEqual(VARIANTS.gallery.fit, 'inside',
+      'a gallery photograph must never be cropped');
+  });
+
+  await check('the encoder spends the budget rather than a fixed quality', async () => {
+    const sharp = require('sharp');
+    const { VARIANTS } = require('../src/routes/photos');
+    const V = VARIANTS.gallery;
+
+    // An easily compressed image must keep its quality; the old fixed-quality
+    // encoder threw detail away on every image alike.
+    const flat = await sharp({
+      create: { width: 1200, height: 800, channels: 3, background: { r: 240, g: 238, b: 232 } },
+    }).jpeg({ quality: 100 }).toBuffer();
+
+    const best = await sharp(flat)
+      .resize(V.width, V.height, { fit: 'inside', withoutEnlargement: true })
+      .jpeg({ quality: V.quality, mozjpeg: true, progressive: true })
+      .toBuffer({ resolveWithObject: true });
+
+    assert.ok(best.data.length <= V.targetBytes,
+      'a flat image should fit the budget at full quality');
+    // Aspect ratio must survive: 1200x800 is 1.5, and "inside" never crops.
+    assert.ok(Math.abs(best.info.width / best.info.height - 1.5) < 0.01,
+      `aspect ratio changed: ${best.info.width}x${best.info.height}`);
+  });
+
   await check('image variants have sane, distinct geometry', () => {
     const { VARIANTS } = require('../src/routes/photos');
     assert.strictEqual(VARIANTS.portrait.fit, 'cover', 'portraits must crop, not letterbox');
