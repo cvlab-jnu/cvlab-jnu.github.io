@@ -45,16 +45,20 @@ const VARIANTS = {
     thumb: 0, lossless: true, quality: 82,
   },
   gallery: {
-    width: 2000, height: 2000, fit: 'inside', position: 'centre',
+    width: 2560, height: 2560, fit: 'inside', position: 'centre',
     lossless: false,
-    // Up to 150 kB for the full image, at the highest quality that fits.
-    targetBytes: 150 * 1024,
-    quality: 92,
-    // The grid is a wall of thumbnails, so these stay small — but 600px keeps
-    // them sharp on a high-density screen, where 400px looked soft.
-    thumb: 600,
-    thumbTargetBytes: 70 * 1024,
-    thumbQuality: 86,
+    // 400 kB buys close to visually lossless at this size. The budget exists
+    // to bound the database, not to save bandwidth: Atlas M0 holds 512 MB, so
+    // even 200 photographs at this size use under a sixth of it.
+    targetBytes: 400 * 1024,
+    // Start at 95 rather than 92 — above about 95 JPEG spends bytes on detail
+    // no eye recovers, so it is the sensible ceiling.
+    quality: 95,
+    // The grid is a wall of thumbnails, but 800px keeps them crisp when a
+    // browser scales them up on a high-density display.
+    thumb: 800,
+    thumbTargetBytes: 140 * 1024,
+    thumbQuality: 88,
   },
 };
 
@@ -104,7 +108,8 @@ const MAX_PIXELS = 100 * 1000 * 1000;
  * rather than failing: a slightly-over-budget photograph is a better outcome
  * than a rejected upload.
  */
-const QUALITY_STEPS = [92, 88, 84, 80, 76, 72, 68, 62];
+// 95 is the top step: above it JPEG spends bytes on detail no eye recovers.
+const QUALITY_STEPS = [95, 92, 88, 84, 80, 76, 72, 68, 62];
 
 /**
  * Fractions of the target size to fall back to when quality alone cannot meet

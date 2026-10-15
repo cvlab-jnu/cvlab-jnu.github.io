@@ -268,10 +268,15 @@ async function main() {
 
   await check('a gallery photograph gets a size budget, a portrait does not', () => {
     const { VARIANTS } = require('../src/routes/photos');
-    assert.ok(VARIANTS.gallery.targetBytes >= 100 * 1024,
-      'the gallery budget is too mean for a photograph');
-    assert.ok(VARIANTS.gallery.width >= 1600, 'gallery images should be large');
-    assert.ok(VARIANTS.gallery.thumb >= 500, 'grid thumbnails look soft below 500px');
+    assert.ok(VARIANTS.gallery.targetBytes >= 300 * 1024,
+      'the gallery budget is too mean for a photograph people will look at');
+    assert.ok(VARIANTS.gallery.width >= 2400, 'gallery images should be large');
+    assert.ok(VARIANTS.gallery.thumb >= 700, 'grid thumbnails look soft below 700px');
+
+    // The budget has to stay sane against the free Atlas tier: 512 MB total.
+    const perPhoto = VARIANTS.gallery.targetBytes + VARIANTS.gallery.thumbTargetBytes;
+    assert.ok(perPhoto * 200 < 200 * 1024 * 1024,
+      'at this budget 200 photographs would take an unreasonable share of the database');
     assert.ok(!VARIANTS.portrait.targetBytes,
       'a portrait is a fixed crop and needs no budget');
     assert.strictEqual(VARIANTS.gallery.fit, 'inside',
